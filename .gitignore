@@ -1,0 +1,48 @@
+# Dependencies
+/node_modules
+
+# Build output
+/dist
+/build
+/.medusa
+
+# Environment
+.env
+.env.*
+
+# IDE & Editors
+.idea
+.vscode
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+*.log
+yarn-error.log
+npm-debug.log
+
+# Coverage
+/coverage
+
+# Cache
+.cache
+./tsconfig.tsbuildinfo
+
+# Database dumps
+medusa-db.sql
+
+# Uploads
+/uploads
+
+# Yarn
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
+
+# Yalc (local development)
+.yalc
+yalc.lock

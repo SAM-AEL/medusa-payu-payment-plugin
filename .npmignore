@@ -1,0 +1,41 @@
+# Source files (compiled version in .medusa/server is published)
+src/
+
+# Development files
+.git/
+.gitignore
+.yalc/
+yalc.lock
+tsconfig.json
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Test and coverage
+coverage/
+*.test.ts
+*.spec.ts
+__tests__/
+
+# Build artifacts
+node_modules/
+.cache/
+build/
+dist/
+
+# Environment and config
+.env
+.env.*
+
+# Logs
+*.log
+yarn-error.log
+npm-debug.log
+
+# Misc
+*.md
+!README.md

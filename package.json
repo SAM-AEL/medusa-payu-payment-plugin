@@ -1,0 +1,84 @@
+{
+  "name": "medusa-payu-payment-plugin",
+  "version": "1.1.0",
+  "description": "PayU India payment gateway plugin for MedusaJS 2.x with redirect-based checkout, webhook support, hash verification, and refunds.",
+  "author": "SAM-AEL (https://github.com/SAM-AEL)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SAM-AEL/medusa-payu-payment-plugin.git"
+  },
+  "homepage": "https://github.com/SAM-AEL/medusa-payu-payment-plugin#readme",
+  "bugs": {
+    "url": "https://github.com/SAM-AEL/medusa-payu-payment-plugin/issues"
+  },
+  "files": [
+    ".medusa/server"
+  ],
+  "exports": {
+    "./package.json": "./package.json",
+    "./workflows": "./.medusa/server/src/workflows/index.js",
+    "./.medusa/server/src/modules/*": "./.medusa/server/src/modules/*/index.js",
+    "./modules/*": "./.medusa/server/src/modules/*/index.js",
+    "./providers/*": "./.medusa/server/src/providers/*/index.js",
+    "./*": "./.medusa/server/src/*.js",
+    "./admin": {
+      "import": "./.medusa/server/src/admin/index.mjs",
+      "require": "./.medusa/server/src/admin/index.js",
+      "default": "./.medusa/server/src/admin/index.js"
+    }
+  },
+  "keywords": [
+    "medusa",
+    "medusajs",
+    "medusa-v2",
+    "medusa-plugin",
+    "medusa-plugin-payment",
+    "medusa-plugin-integration",
+    "payment",
+    "payment-gateway",
+    "payu",
+    "payu-india",
+    "india",
+    "ecommerce",
+    "checkout",
+    "redirect-payment"
+  ],
+  "scripts": {
+    "build": "medusa plugin:build",
+    "dev": "medusa plugin:develop",
+    "prepublishOnly": "medusa plugin:build"
+  },
+  "devDependencies": {
+    "@medusajs/admin-sdk": "2.11.2",
+    "@medusajs/cli": "2.11.2",
+    "@medusajs/framework": "2.11.2",
+    "@medusajs/icons": "2.11.2",
+    "@medusajs/medusa": "2.11.2",
+    "@medusajs/test-utils": "2.11.2",
+    "@medusajs/ui": "4.0.25",
+    "@swc/core": "1.5.7",
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.3.2",
+    "@types/react-dom": "^18.2.25",
+    "prop-types": "^15.8.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.2",
+    "vite": "^5.2.11"
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "@medusajs/admin-sdk": "2.11.2",
+    "@medusajs/cli": "2.11.2",
+    "@medusajs/framework": "2.11.2",
+    "@medusajs/icons": "2.11.2",
+    "@medusajs/medusa": "2.11.2",
+    "@medusajs/test-utils": "2.11.2",
+    "@medusajs/ui": "4.0.25"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
