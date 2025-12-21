@@ -97,14 +97,13 @@ When creating a payment session, the following customer data is **required**:
 
 - **Email** - Customer email address
 - **Name** - Customer first name
-- **Phone** - Uses fallback chain: customer phone → billing address phone → shipping address phone
+- **Phone** - Uses fallback chain: customer phone → billing address phone (from context) → shipping address phone
 
-Pass address phone numbers when initiating payment:
+The phone number fallback uses MedusaJS's `PaymentProviderContext` which provides the customer and billing address data. If the billing address phone is not available, pass the shipping address phone when initiating payment:
 
 ```typescript
 // When creating payment session, include in data:
 {
-  billing_address_phone: cart.billing_address?.phone,
   shipping_address_phone: cart.shipping_address?.phone,
   country_code: "in"  // For URL construction
 }
@@ -190,16 +189,49 @@ The payment session data contains:
 
 ## Webhook Setup
 
-Configure the webhook URL in your PayU dashboard:
+PayU webhooks (S2S callbacks) ensure reliable payment status updates even when browser redirects fail.
+
+### 1. Configure Webhook URL in PayU Dashboard
+
+1. Log in to [PayU Dashboard](https://dashboard.payu.in)
+2. Go to **Settings → Webhooks** (or **Developer Settings → Webhooks**)
+3. Click **Create Webhook** or **Add Webhook URL**
+4. Enter your webhook URL:
 
 ```
-https://your-backend.com/hooks/payment/pp_payu_payu
+https://your-backend.com/hooks/payment/payu_payu
 ```
 
-The webhook handler automatically:
-- Verifies the response hash for security
-- Updates payment status (authorized/failed)
-- Triggers order completion workflow
+5. Select events to subscribe:
+   - `payment.success` - Payment completed successfully
+   - `payment.failed` - Payment failed
+   - `payment.pending` - Payment is pending (optional)
+
+6. Save the configuration
+
+### 2. Webhook Security
+
+The plugin automatically handles security:
+
+- **Hash Verification**: Every webhook is verified using SHA-512 reverse hash
+- **Formula**: `sha512(SALT|status||||||udf5|udf4|udf3|udf2|udf1|email|firstname|productinfo|amount|txnid|key)`
+- **Tampered webhooks are rejected** and logged for investigation
+
+### 3. Content Type Support
+
+PayU sends webhooks as URL-encoded form data:
+- `application/x-www-form-urlencoded`
+- `multipart/form-data`
+
+MedusaJS handles both content types automatically.
+
+### 4. What Happens on Webhook
+
+| Status | Action | Result |
+|--------|--------|--------|
+| `success` | `authorized` | Payment session authorized, cart completed, order created |
+| `failure`/`failed` | `failed` | Payment session marked as failed |
+| Other | `not_supported` | Logged for debugging, no action taken |
 
 ## API Reference
 

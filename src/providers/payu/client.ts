@@ -21,6 +21,38 @@ export class PayuClient {
     }
 
     /**
+     * Default API timeout in milliseconds (30 seconds)
+     */
+    private readonly API_TIMEOUT_MS = 30000
+
+    /**
+     * Fetch with timeout to prevent hanging requests
+     */
+    private async fetchWithTimeout(
+        url: string,
+        options: RequestInit,
+        timeoutMs: number = this.API_TIMEOUT_MS
+    ): Promise<Response> {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs)
+
+        try {
+            const response = await fetch(url, {
+                ...options,
+                signal: controller.signal,
+            })
+            return response
+        } catch (error) {
+            if (error instanceof Error && error.name === 'AbortError') {
+                throw new Error(`PayU API request timed out after ${timeoutMs}ms`)
+            }
+            throw error
+        } finally {
+            clearTimeout(timeoutId)
+        }
+    }
+
+    /**
      * Get PayU payment URL
      */
     getPaymentUrl(): string {
@@ -121,7 +153,7 @@ export class PayuClient {
             ? "https://info.payu.in/merchant/postservice.php?form=2"
             : "https://test.payu.in/merchant/postservice.php?form=2"
 
-        const response = await fetch(apiUrl, {
+        const response = await this.fetchWithTimeout(apiUrl, {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: new URLSearchParams({
@@ -151,7 +183,7 @@ export class PayuClient {
             ? "https://info.payu.in/merchant/postservice.php?form=2"
             : "https://test.payu.in/merchant/postservice.php?form=2"
 
-        const response = await fetch(apiUrl, {
+        const response = await this.fetchWithTimeout(apiUrl, {
             method: "POST",
             headers: { "Content-Type": "application/x-www-form-urlencoded" },
             body: new URLSearchParams({

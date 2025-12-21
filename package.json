@@ -1,6 +1,6 @@
 {
   "name": "medusa-payu-payment-plugin",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "PayU India payment gateway plugin for MedusaJS 2.x with redirect-based checkout, webhook support, hash verification, and refunds.",
   "author": "SAM-AEL (https://github.com/SAM-AEL)",
   "license": "MIT",

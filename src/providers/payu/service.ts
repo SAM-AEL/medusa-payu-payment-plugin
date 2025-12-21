@@ -8,6 +8,7 @@
 import {
     AbstractPaymentProvider,
     BigNumber,
+    MedusaError,
     PaymentSessionStatus,
 } from "@medusajs/framework/utils"
 import type {
@@ -51,6 +52,25 @@ export const PAYU_PROVIDER_ID = "payu"
  */
 class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderConfig> {
     static identifier = PAYU_PROVIDER_ID
+
+    /**
+     * Validate provider options at startup
+     * Called by MedusaJS when registering the provider
+     */
+    static validateOptions(options: Record<string, unknown>): void {
+        if (!options.merchantKey) {
+            throw new MedusaError(
+                MedusaError.Types.INVALID_DATA,
+                "PayU: merchantKey is required. Set PAYU_MERCHANT_KEY environment variable."
+            )
+        }
+        if (!options.merchantSalt) {
+            throw new MedusaError(
+                MedusaError.Types.INVALID_DATA,
+                "PayU: merchantSalt is required. Set PAYU_MERCHANT_SALT environment variable."
+            )
+        }
+    }
 
     protected config_: PayuProviderConfig
     protected logger_: Logger
@@ -113,7 +133,7 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
 
             // Fallback chain: customer phone -> billing address phone -> shipping address phone
             const phone = customer?.phone
-                || (inputData?.billing_address_phone as string)
+                || customer?.billing_address?.phone
                 || (inputData?.shipping_address_phone as string)
             if (!phone) {
                 throw new Error("Phone number is required for payment processing")
@@ -371,14 +391,45 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
 
     /**
      * Handle webhook from PayU
+     * 
+     * PayU sends webhooks for payment status updates.
+     * Webhook URL format: https://your-backend.com/hooks/payment/payu_payu
+     * 
+     * The webhook payload is URL-encoded form data with fields matching PayuWebhookPayload.
+     * Hash verification ensures the webhook is authentic and hasn't been tampered with.
      */
     async getWebhookActionAndData(data: ProviderWebhookPayload["payload"]): Promise<WebhookActionResult> {
         try {
+            // Log raw data for debugging malformed webhooks
+            if (!data || !data.data) {
+                this.logger_?.error?.(
+                    `PayU webhook: INVALID PAYLOAD - No data received. ` +
+                    `Raw payload: ${JSON.stringify(data)?.substring(0, 500) || 'undefined'}`
+                )
+                return { action: "not_supported" }
+            }
+
             const webhook = data.data as unknown as PayuWebhookPayload
 
-            this.logger_?.info?.(`PayU webhook: txnid=${webhook.txnid}, status=${webhook.status}`)
+            // Validate required fields exist
+            if (!webhook.txnid || !webhook.status || !webhook.hash) {
+                this.logger_?.error?.(
+                    `PayU webhook: INVALID PAYLOAD - Missing required fields. ` +
+                    `txnid=${webhook.txnid ?? 'MISSING'}, status=${webhook.status ?? 'MISSING'}, ` +
+                    `hash=${webhook.hash ? 'present' : 'MISSING'}. ` +
+                    `This may indicate PayU sent malformed data or the webhook URL received non-PayU traffic.`
+                )
+                return { action: "not_supported" }
+            }
 
-            // Verify hash
+            // Enhanced logging for production debugging and audit trail
+            this.logger_?.info?.(
+                `PayU webhook received: txnid=${webhook.txnid}, mihpayid=${webhook.mihpayid || 'N/A'}, ` +
+                `status=${webhook.status}, amount=${webhook.amount || 'N/A'}, mode=${webhook.mode || 'N/A'}`
+            )
+
+            // Verify hash to ensure webhook authenticity
+            // Formula: sha512(SALT|status||||||udf5|udf4|udf3|udf2|udf1|email|firstname|productinfo|amount|txnid|key)
             const isValid = this.client_.verifyResponseHash({
                 status: webhook.status,
                 email: webhook.email,
@@ -395,14 +446,21 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
             })
 
             if (!isValid) {
-                this.logger_?.warn?.(`PayU webhook: Invalid hash for ${webhook.txnid}`)
+                this.logger_?.warn?.(
+                    `PayU webhook: Hash verification FAILED for txnid=${webhook.txnid}. ` +
+                    `This could indicate a tampered webhook or configuration mismatch.`
+                )
                 return { action: "not_supported" }
             }
 
+            this.logger_?.debug?.(`PayU webhook: Hash verified successfully for txnid=${webhook.txnid}`)
+
+            // Session ID matches the transaction ID returned from initiatePayment
             const sessionId = webhook.udf1 || webhook.txnid
             const status = webhook.status.toLowerCase()
 
             if (status === "success") {
+                this.logger_?.info?.(`PayU webhook: Payment SUCCESS for txnid=${webhook.txnid}, authorizing session ${sessionId}`)
                 return {
                     action: "authorized",
                     data: {
@@ -413,6 +471,10 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
             }
 
             if (status === "failure" || status === "failed") {
+                this.logger_?.info?.(
+                    `PayU webhook: Payment FAILED for txnid=${webhook.txnid}, ` +
+                    `error=${webhook.error || 'N/A'}, error_Message=${webhook.error_Message || 'N/A'}`
+                )
                 return {
                     action: "failed",
                     data: {
@@ -422,9 +484,37 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
                 }
             }
 
+            // Handle refund webhooks from PayU
+            // Note: MedusaJS manages refund state internally, this is for logging/reconciliation
+            if (status === "refund" || status === "refunded") {
+                this.logger_?.info?.(
+                    `PayU webhook: REFUND processed for txnid=${webhook.txnid}, ` +
+                    `mihpayid=${webhook.mihpayid || 'N/A'}, amount=${webhook.amount}`
+                )
+                // Refunds are managed by MedusaJS through refundPayment method
+                // This webhook confirms PayU processed the refund
+                return { action: "not_supported" }
+            }
+
+            // Handle dispute/chargeback webhooks from PayU
+            // TODO: Implement dispute handling workflow
+            if (status === "dispute" || status === "chargeback") {
+                this.logger_?.warn?.(
+                    `PayU webhook: ⚠️ DISPUTE/CHARGEBACK received for txnid=${webhook.txnid}, ` +
+                    `mihpayid=${webhook.mihpayid || 'N/A'}, amount=${webhook.amount}. ` +
+                    `Manual review required!`
+                )
+                // Disputes need manual handling - log for now
+                return { action: "not_supported" }
+            }
+
+            // Handle pending or other statuses
+            this.logger_?.info?.(`PayU webhook: Unhandled status '${webhook.status}' for txnid=${webhook.txnid}`)
             return { action: "not_supported" }
         } catch (error) {
-            this.logger_?.error?.(`PayU webhook error: ${error}`)
+            this.logger_?.error?.(
+                `PayU webhook processing error: ${error instanceof Error ? error.message : String(error)}`
+            )
             return { action: "not_supported" }
         }
     }
