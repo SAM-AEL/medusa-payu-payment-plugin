@@ -98,15 +98,41 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
             const formattedAmount = this.formatAmount(amount)
 
             const customer = context?.customer
-            const email = customer?.email || "customer@example.com"
-            const firstname = customer?.first_name || "Customer"
-            const phone = customer?.phone || ""
-            const productinfo = (input.data as Record<string, string>)?.productinfo || "Order Payment"
+            const inputData = input.data as Record<string, unknown> | undefined
 
-            const storefrontUrl = process.env.STOREFRONT_URL || "http://localhost:8000"
-            const countryCode = (input.data as Record<string, string>)?.country_code || "in"
-            const surl = `${storefrontUrl}/${countryCode}/order/confirmed`
-            const furl = `${storefrontUrl}/${countryCode}/checkout?payment_status=failed`
+            // Strict validation for required fields (legal compliance)
+            const email = customer?.email
+            if (!email) {
+                throw new Error("Customer email is required for payment processing")
+            }
+
+            const firstname = customer?.first_name
+            if (!firstname) {
+                throw new Error("Customer name is required for payment processing")
+            }
+
+            // Fallback chain: customer phone -> billing address phone -> shipping address phone
+            const phone = customer?.phone
+                || (inputData?.billing_address_phone as string)
+                || (inputData?.shipping_address_phone as string)
+            if (!phone) {
+                throw new Error("Phone number is required for payment processing")
+            }
+
+            const productinfo = (inputData?.productinfo as string) || "Order Payment"
+
+            // Build redirect URLs from environment variables
+            const storefrontUrl = process.env.STOREFRONT_URL
+            const redirectPath = process.env.PAYU_REDIRECT_URL
+            const redirectFailurePath = process.env.PAYU_REDIRECT_FAILURE_URL
+
+            if (!storefrontUrl || !redirectPath || !redirectFailurePath) {
+                throw new Error("STOREFRONT_URL, PAYU_REDIRECT_URL, and PAYU_REDIRECT_FAILURE_URL environment variables are required")
+            }
+
+            const countryCode = (inputData?.country_code as string) || "in"
+            const surl = `${storefrontUrl}/${countryCode}${redirectPath}`
+            const furl = `${storefrontUrl}/${countryCode}${redirectFailurePath}`
 
             // Generate hash using SDK
             const hash = this.client_.generatePaymentHash({
@@ -299,7 +325,9 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
 
             if (amount) {
                 const formattedAmount = this.formatAmount(amount)
-                const storefrontUrl = process.env.STOREFRONT_URL || "http://localhost:8000"
+                const storefrontUrl = process.env.STOREFRONT_URL || ""
+                const redirectPath = process.env.PAYU_REDIRECT_URL || ""
+                const redirectFailurePath = process.env.PAYU_REDIRECT_FAILURE_URL || ""
 
                 const hash = this.client_.generatePaymentHash({
                     txnid: sessionData.txnid,
@@ -308,6 +336,9 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
                     firstname: sessionData.firstname,
                     email: sessionData.email,
                 })
+
+                const surl = `${storefrontUrl}/${sessionData.countryCode || 'in'}${redirectPath}`
+                const furl = `${storefrontUrl}/${sessionData.countryCode || 'in'}${redirectFailurePath}`
 
                 return {
                     data: {
@@ -322,8 +353,8 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
                             firstname: sessionData.firstname,
                             email: sessionData.email,
                             phone: sessionData.phone,
-                            surl: `${storefrontUrl}/${sessionData.countryCode || 'in'}/order/confirmed`,
-                            furl: `${storefrontUrl}/${sessionData.countryCode || 'in'}/checkout?payment_status=failed`,
+                            surl,
+                            furl,
                             hash,
                             service_provider: "payu_paisa",
                         },

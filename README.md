@@ -37,8 +37,10 @@ PAYU_MERCHANT_KEY=your_merchant_key
 PAYU_MERCHANT_SALT=your_merchant_salt
 PAYU_ENVIRONMENT=test  # or "production"
 
-# Your storefront URL (for redirect callbacks)
+# Redirect URLs
 STOREFRONT_URL=http://localhost:8000
+PAYU_REDIRECT_URL=/order/confirmed
+PAYU_REDIRECT_FAILURE_URL=/checkout?payment_status=failed
 ```
 
 ### 2. MedusaJS Config
@@ -88,6 +90,25 @@ In Medusa Admin:
 4. Customer completes payment on PayU's hosted page
 5. PayU redirects back to your storefront
 6. Webhook updates order status automatically
+
+### Required Customer Data
+
+When creating a payment session, the following customer data is **required**:
+
+- **Email** - Customer email address
+- **Name** - Customer first name
+- **Phone** - Uses fallback chain: customer phone → billing address phone → shipping address phone
+
+Pass address phone numbers when initiating payment:
+
+```typescript
+// When creating payment session, include in data:
+{
+  billing_address_phone: cart.billing_address?.phone,
+  shipping_address_phone: cart.shipping_address?.phone,
+  country_code: "in"  // For URL construction
+}
+```
 
 ### React/Next.js Example
 
@@ -226,7 +247,9 @@ if (result.success) {
 | `PAYU_MERCHANT_KEY` | PayU Merchant Key | Yes |
 | `PAYU_MERCHANT_SALT` | PayU Merchant Salt (Salt V1) | Yes |
 | `PAYU_ENVIRONMENT` | `test` or `production` | No (default: `test`) |
-| `STOREFRONT_URL` | Your storefront URL for redirects | Yes |
+| `STOREFRONT_URL` | Your storefront base URL (e.g., `http://localhost:8000`) | Yes |
+| `PAYU_REDIRECT_URL` | Success redirect path (e.g., `/order/confirmed`) | Yes |
+| `PAYU_REDIRECT_FAILURE_URL` | Failure redirect path (e.g., `/checkout?payment_status=failed`) | Yes |
 
 ## Testing
 
