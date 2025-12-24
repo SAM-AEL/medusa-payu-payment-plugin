@@ -120,23 +120,25 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
             const customer = context?.customer
             const inputData = input.data as Record<string, unknown> | undefined
 
-            // Strict validation for required fields (legal compliance)
-            const email = customer?.email
+            // Fallback chain: customer data -> input data (passed from frontend)
+            // MedusaJS may not always populate the full customer context
+            const email = customer?.email || (inputData?.email as string)
             if (!email) {
-                throw new Error("Customer email is required for payment processing")
+                throw new Error("Customer email is required for payment processing. Pass email in data payload or ensure customer is logged in.")
             }
 
-            const firstname = customer?.first_name
+            const firstname = customer?.first_name || (inputData?.firstname as string) || (inputData?.first_name as string)
             if (!firstname) {
-                throw new Error("Customer name is required for payment processing")
+                throw new Error("Customer name is required for payment processing. Pass firstname in data payload.")
             }
 
-            // Fallback chain: customer phone -> billing address phone -> shipping address phone
+            // Fallback chain: customer phone -> billing address phone -> shipping address phone -> input data
             const phone = customer?.phone
                 || customer?.billing_address?.phone
                 || (inputData?.shipping_address_phone as string)
+                || (inputData?.phone as string)
             if (!phone) {
-                throw new Error("Phone number is required for payment processing")
+                throw new Error("Phone number is required for payment processing. Pass phone in data payload.")
             }
 
             const productinfo = (inputData?.productinfo as string) || "Order Payment"
@@ -263,11 +265,19 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
             const sessionData = input.data as unknown as PayuSessionData
 
             if (!sessionData.payuTransactionId) {
-                throw new Error("No PayU transaction ID found")
+                throw new Error(
+                    "No PayU transaction ID (mihpayid) found. " +
+                    "This payment may not have been fully captured or the session data is incomplete."
+                )
             }
 
             const tokenId = `REF_${sessionData.payuTransactionId}_${Date.now()}`
             const refundAmount = this.formatAmount(input.amount)
+
+            this.logger_?.info?.(
+                `PayU refund request: mihpayid=${sessionData.payuTransactionId}, ` +
+                `txnid=${sessionData.txnid}, amount=${refundAmount}, tokenId=${tokenId}`
+            )
 
             const response = await this.client_.refund(
                 sessionData.payuTransactionId,
@@ -275,21 +285,75 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
                 refundAmount
             )
 
+            // Log full PayU response for debugging
+            this.logger_?.info?.(
+                `PayU refund response: status=${response.status}, msg=${response.msg}, ` +
+                `request_id=${response.request_id || 'N/A'}, mihpayid=${response.mihpayid || 'N/A'}, ` +
+                `error_code=${response.error_code || 'N/A'}, full=${JSON.stringify(response)}`
+            )
+
             if (response.status === 1) {
-                this.logger_?.info?.(`PayU refund successful: ${sessionData.txnid}`)
+                // Check for same-day capture message (treated as pending success)
+                if (response.msg?.includes?.("Capture is done today")) {
+                    this.logger_?.info?.(
+                        `PayU refund queued for ${sessionData.txnid}: Same-day capture, ` +
+                        `refund will be processed tomorrow. request_id=${response.request_id}`
+                    )
+                }
+
+                this.logger_?.info?.(`PayU refund successful: ${sessionData.txnid}, request_id=${response.request_id}`)
                 return {
                     data: {
                         ...sessionData,
                         status: "refunded" as PayuPaymentStatus,
-                        refund: { tokenId, amount: refundAmount, response },
+                        refund: {
+                            tokenId,
+                            amount: refundAmount,
+                            request_id: response.request_id,
+                            response
+                        },
                     } as unknown as Record<string, unknown>,
                 }
             }
 
-            throw new Error(`Refund failed: ${response.msg}`)
+            // Handle specific refund failure scenarios
+            let errorMessage = response.msg || "Unknown error"
+
+            // Common PayU refund errors with helpful messages
+            if (response.msg?.toLowerCase?.().includes?.("try after some time")) {
+                errorMessage =
+                    `PayU says: "${response.msg}". ` +
+                    `This usually means: ` +
+                    `(1) The payment was captured today and PayU requires 24 hours before refund, ` +
+                    `(2) A refund is already in progress for this transaction, or ` +
+                    `(3) PayU is experiencing temporary issues. Please try again later.`
+            } else if (response.msg?.toLowerCase?.().includes?.("token already used")) {
+                errorMessage =
+                    `Refund token already used. A refund may already be pending for this transaction. ` +
+                    `Please check the transaction status in PayU dashboard.`
+            } else if (response.msg?.toLowerCase?.().includes?.("transaction not exists")) {
+                errorMessage =
+                    `Transaction not found in PayU. The mihpayid (${sessionData.payuTransactionId}) may be incorrect.`
+            } else if (response.msg?.toLowerCase?.().includes?.("amount")) {
+                errorMessage =
+                    `Invalid refund amount (${refundAmount}). Please ensure it doesn't exceed the original transaction amount.`
+            }
+
+            throw new MedusaError(
+                MedusaError.Types.INVALID_DATA,
+                `Refund failed: ${errorMessage}`
+            )
         } catch (error) {
             this.logger_?.error?.(`PayU refundPayment error: ${error}`)
-            throw error
+            // Re-throw MedusaErrors as-is so message is preserved
+            if (error instanceof MedusaError) {
+                throw error
+            }
+            // Wrap unexpected errors with context
+            throw new MedusaError(
+                MedusaError.Types.UNEXPECTED_STATE,
+                error instanceof Error ? error.message : String(error)
+            )
         }
     }
 
@@ -400,8 +464,54 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
      */
     async getWebhookActionAndData(data: ProviderWebhookPayload["payload"]): Promise<WebhookActionResult> {
         try {
-            // Log raw data for debugging malformed webhooks
-            if (!data || !data.data) {
+            // Enhanced debug logging - log the full payload structure
+            this.logger_?.info?.(
+                `PayU webhook: RAW PAYLOAD STRUCTURE - ` +
+                `data keys: ${data ? Object.keys(data as object).join(', ') : 'null'}, ` +
+                `data.data keys: ${data?.data ? Object.keys(data.data as object).join(', ') : 'null'}, ` +
+                `Full payload (first 1000 chars): ${JSON.stringify(data)?.substring(0, 1000) || 'undefined'}`
+            )
+
+            // PayU webhooks send form-urlencoded data which MedusaJS parses
+            // The data location may vary - check both data.data and direct data properties
+            // Also handle case where MedusaJS puts parsed body directly in data
+            let webhook: PayuWebhookPayload
+
+            // Check for rawData (Buffer/string from raw body) that needs parsing
+            if ((data as Record<string, unknown>)?.rawData) {
+                const rawData = (data as Record<string, unknown>).rawData
+                this.logger_?.debug?.(`PayU webhook: Found rawData, type=${typeof rawData}`)
+
+                // If rawData is a Buffer or string, parse it as URL-encoded form data
+                if (typeof rawData === 'string' || Buffer.isBuffer(rawData)) {
+                    const bodyStr = Buffer.isBuffer(rawData) ? rawData.toString('utf8') : rawData
+                    const params = new URLSearchParams(bodyStr)
+                    webhook = Object.fromEntries(params.entries()) as unknown as PayuWebhookPayload
+                    this.logger_?.debug?.(`PayU webhook: Parsed rawData, txnid=${webhook.txnid}`)
+                } else {
+                    webhook = rawData as unknown as PayuWebhookPayload
+                }
+            }
+            // Check if data.data contains the webhook fields
+            else if (data?.data && typeof data.data === 'object') {
+                const dataObj = data.data as Record<string, unknown>
+                // If data.data has txnid or status, use it directly
+                if (dataObj.txnid || dataObj.status) {
+                    webhook = data.data as unknown as PayuWebhookPayload
+                    this.logger_?.debug?.(`PayU webhook: Using data.data, txnid=${webhook.txnid}`)
+                } else {
+                    // data.data might be empty or contain nested structure
+                    this.logger_?.warn?.(`PayU webhook: data.data has no txnid/status. Keys: ${Object.keys(dataObj).join(', ')}`)
+                    webhook = data.data as unknown as PayuWebhookPayload
+                }
+            }
+            // Check if the fields are directly on data (MedusaJS might parse body there)
+            else if ((data as Record<string, unknown>)?.txnid || (data as Record<string, unknown>)?.status) {
+                webhook = data as unknown as PayuWebhookPayload
+                this.logger_?.debug?.(`PayU webhook: Using data directly, txnid=${webhook.txnid}`)
+            }
+            // No valid data structure found
+            else {
                 this.logger_?.error?.(
                     `PayU webhook: INVALID PAYLOAD - No data received. ` +
                     `Raw payload: ${JSON.stringify(data)?.substring(0, 500) || 'undefined'}`
@@ -409,15 +519,14 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
                 return { action: "not_supported" }
             }
 
-            const webhook = data.data as unknown as PayuWebhookPayload
-
             // Validate required fields exist
             if (!webhook.txnid || !webhook.status || !webhook.hash) {
                 this.logger_?.error?.(
                     `PayU webhook: INVALID PAYLOAD - Missing required fields. ` +
                     `txnid=${webhook.txnid ?? 'MISSING'}, status=${webhook.status ?? 'MISSING'}, ` +
                     `hash=${webhook.hash ? 'present' : 'MISSING'}. ` +
-                    `This may indicate PayU sent malformed data or the webhook URL received non-PayU traffic.`
+                    `This may indicate PayU sent malformed data or the webhook URL received non-PayU traffic. ` +
+                    `Available keys in webhook: ${Object.keys(webhook as object).join(', ')}`
                 )
                 return { action: "not_supported" }
             }
