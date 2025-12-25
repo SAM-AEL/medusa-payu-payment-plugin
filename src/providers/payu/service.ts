@@ -143,6 +143,13 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
 
             const productinfo = (inputData?.productinfo as string) || "Order Payment"
 
+            // Extract cart_id and customer_id for UDF fields
+            // These are passed through PayU and returned in webhook for traceability
+            const cartId = (inputData?.cart_id as string) || ""
+            const customerId = context?.customer?.id
+                || (inputData?.customer_id as string)
+                || ""
+
             // Build redirect URLs from environment variables
             const storefrontUrl = process.env.STOREFRONT_URL
             const redirectPath = process.env.PAYU_REDIRECT_URL
@@ -156,13 +163,15 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
             const surl = `${storefrontUrl}/${countryCode}${redirectPath}`
             const furl = `${storefrontUrl}/${countryCode}${redirectFailurePath}`
 
-            // Generate hash using SDK
+            // Generate hash using SDK (includes UDF fields)
             const hash = this.client_.generatePaymentHash({
                 txnid,
                 amount: formattedAmount,
                 productinfo,
                 firstname,
                 email,
+                udf1: cartId,
+                udf2: customerId,
             })
 
             const sessionData: PayuSessionData = {
@@ -176,6 +185,8 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
                 paymentUrl: this.client_.getPaymentUrl(),
                 status: "pending",
                 countryCode,
+                udf1: cartId,
+                udf2: customerId,
             }
 
             this.logger_?.debug?.(`PayU payment initiated: ${txnid}`)
@@ -195,6 +206,8 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
                         surl,
                         furl,
                         hash,
+                        udf1: cartId,
+                        udf2: customerId,
                         service_provider: "payu_paisa",
                     },
                 } as unknown as Record<string, unknown>,
@@ -419,6 +432,8 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
                     productinfo: sessionData.productinfo,
                     firstname: sessionData.firstname,
                     email: sessionData.email,
+                    udf1: sessionData.udf1,
+                    udf2: sessionData.udf2,
                 })
 
                 const surl = `${storefrontUrl}/${sessionData.countryCode || 'in'}${redirectPath}`
@@ -440,6 +455,8 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
                             surl,
                             furl,
                             hash,
+                            udf1: sessionData.udf1,
+                            udf2: sessionData.udf2,
                             service_provider: "payu_paisa",
                         },
                     } as unknown as Record<string, unknown>,
@@ -534,7 +551,8 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
             // Enhanced logging for production debugging and audit trail
             this.logger_?.info?.(
                 `PayU webhook received: txnid=${webhook.txnid}, mihpayid=${webhook.mihpayid || 'N/A'}, ` +
-                `status=${webhook.status}, amount=${webhook.amount || 'N/A'}, mode=${webhook.mode || 'N/A'}`
+                `status=${webhook.status}, amount=${webhook.amount || 'N/A'}, mode=${webhook.mode || 'N/A'}, ` +
+                `cart_id=${webhook.udf1 || 'N/A'}, customer_id=${webhook.udf2 || 'N/A'}`
             )
 
             // Verify hash to ensure webhook authenticity

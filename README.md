@@ -98,14 +98,19 @@ When creating a payment session, the following customer data is **required**:
 - **Email** - Customer email address
 - **Name** - Customer first name
 - **Phone** - Uses fallback chain: customer phone → billing address phone (from context) → shipping address phone
+- **Cart ID & Customer ID** - Passed as UDF fields (udf1/udf2) for traceability (optional but recommended)
 
-The phone number fallback uses MedusaJS's `PaymentProviderContext` which provides the customer and billing address data. If the billing address phone is not available, pass the shipping address phone when initiating payment:
+The phone number fallback uses MedusaJS's `PaymentProviderContext` which provides the customer and billing address data. If the billing address phone is not available, pass the shipping address phone when initiating payment.
+
+It is also highly recommended to pass `cart_id` and `customer_id` so they persist through to the webhook even if the session is lost.
 
 ```typescript
 // When creating payment session, include in data:
 {
   shipping_address_phone: cart.shipping_address?.phone,
-  country_code: "in"  // For URL construction
+  cart_id: cart.id,        // Mapped to udf1
+  customer_id: customer.id, // Mapped to udf2
+  country_code: "in"       // For URL construction
 }
 ```
 
@@ -183,6 +188,8 @@ The payment session data contains:
     furl: string          // Failure redirect URL
     hash: string
     service_provider: string
+    udf1: string          // cart_id
+    udf2: string          // customer_id
   }
 }
 ```
@@ -216,6 +223,8 @@ The plugin automatically handles security:
 - **Hash Verification**: Every webhook is verified using SHA-512 reverse hash
 - **Formula**: `sha512(SALT|status||||||udf5|udf4|udf3|udf2|udf1|email|firstname|productinfo|amount|txnid|key)`
 - **Tampered webhooks are rejected** and logged for investigation
+
+The webhook also logs `cart_id` (from udf1) and `customer_id` (from udf2) for easier debugging and reconciliation.
 
 ### 3. Content Type Support
 

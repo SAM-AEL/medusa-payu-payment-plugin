@@ -53,6 +53,16 @@ export interface PayuSessionData {
     paymentUrl: string
     status: PayuPaymentStatus
     countryCode?: string
+    /** User Defined Field 1 - Used for cart_id */
+    udf1?: string
+    /** User Defined Field 2 - Used for customer_id */
+    udf2?: string
+    /** User Defined Field 3 - Reserved for future use */
+    udf3?: string
+    /** User Defined Field 4 - Reserved for future use */
+    udf4?: string
+    /** User Defined Field 5 - Reserved for future use */
+    udf5?: string
     payuTransactionId?: string
     payuResponse?: Record<string, unknown>
 }
