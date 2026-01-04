@@ -151,17 +151,27 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
                 || ""
 
             // Build redirect URLs from environment variables
-            const storefrontUrl = process.env.STOREFRONT_URL
-            const redirectPath = process.env.PAYU_REDIRECT_URL
-            const redirectFailurePath = process.env.PAYU_REDIRECT_FAILURE_URL
+            // Allow NEXT_PUBLIC_BASE_URL as fallback for STOREFRONT_URL
+            const storefrontUrl = process.env.STOREFRONT_URL || process.env.NEXT_PUBLIC_BASE_URL
 
-            if (!storefrontUrl || !redirectPath || !redirectFailurePath) {
-                throw new Error("STOREFRONT_URL, PAYU_REDIRECT_URL, and PAYU_REDIRECT_FAILURE_URL environment variables are required")
+            // Provide sensible defaults if specific paths aren't provided
+            const redirectPath = process.env.PAYU_REDIRECT_URL || "/order/confirmed"
+            const redirectFailurePath = process.env.PAYU_REDIRECT_FAILURE_URL || "/checkout"
+
+            if (!storefrontUrl) {
+                throw new Error("STOREFRONT_URL or NEXT_PUBLIC_BASE_URL environment variable is required")
             }
 
             const countryCode = (inputData?.country_code as string) || "in"
-            const surl = `${storefrontUrl}/${countryCode}${redirectPath}`
-            const furl = `${storefrontUrl}/${countryCode}${redirectFailurePath}`
+
+            // Constructs the URL: {base}/{country}/{path}
+            // Ensure storefrontUrl doesn't have trailing slash and path starts with slash
+            const cleanBase = storefrontUrl.replace(/\/$/, "")
+            const cleanPath = redirectPath.startsWith("/") ? redirectPath : `/${redirectPath}`
+            const cleanFailPath = redirectFailurePath.startsWith("/") ? redirectFailurePath : `/${redirectFailurePath}`
+
+            const surl = `${cleanBase}/${countryCode}${cleanPath}`
+            const furl = `${cleanBase}/${countryCode}${cleanFailPath}`
 
             // Generate hash using SDK (includes UDF fields)
             const hash = this.client_.generatePaymentHash({
@@ -422,9 +432,23 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
 
             if (amount) {
                 const formattedAmount = this.formatAmount(amount)
-                const storefrontUrl = process.env.STOREFRONT_URL || ""
-                const redirectPath = process.env.PAYU_REDIRECT_URL || ""
-                const redirectFailurePath = process.env.PAYU_REDIRECT_FAILURE_URL || ""
+                // Build redirect URLs from environment variables
+                // Allow NEXT_PUBLIC_BASE_URL as fallback for STOREFRONT_URL
+                const storefrontUrl = process.env.STOREFRONT_URL || process.env.NEXT_PUBLIC_BASE_URL
+
+                // Provide sensible defaults if specific paths aren't provided
+                const redirectPath = process.env.PAYU_REDIRECT_URL || "/order/confirmed"
+                const redirectFailurePath = process.env.PAYU_REDIRECT_FAILURE_URL || "/checkout"
+
+                if (!storefrontUrl) {
+                    throw new Error("STOREFRONT_URL or NEXT_PUBLIC_BASE_URL environment variable is required")
+                }
+
+                // Constructs the URL: {base}/{country}/{path}
+                // Ensure storefrontUrl doesn't have trailing slash and path starts with slash
+                const cleanBase = storefrontUrl.replace(/\/$/, "")
+                const cleanPath = redirectPath.startsWith("/") ? redirectPath : `/${redirectPath}`
+                const cleanFailPath = redirectFailurePath.startsWith("/") ? redirectFailurePath : `/${redirectFailurePath}`
 
                 const hash = this.client_.generatePaymentHash({
                     txnid: sessionData.txnid,
@@ -436,8 +460,8 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
                     udf2: sessionData.udf2,
                 })
 
-                const surl = `${storefrontUrl}/${sessionData.countryCode || 'in'}${redirectPath}`
-                const furl = `${storefrontUrl}/${sessionData.countryCode || 'in'}${redirectFailurePath}`
+                const surl = `${cleanBase}/${sessionData.countryCode || 'in'}${cleanPath}`
+                const furl = `${cleanBase}/${sessionData.countryCode || 'in'}${cleanFailPath}`
 
                 return {
                     data: {

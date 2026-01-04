@@ -37,10 +37,10 @@ PAYU_MERCHANT_KEY=your_merchant_key
 PAYU_MERCHANT_SALT=your_merchant_salt
 PAYU_ENVIRONMENT=test  # or "production"
 
-# Redirect URLs
-STOREFRONT_URL=http://localhost:8000
-PAYU_REDIRECT_URL=/order/confirmed
-PAYU_REDIRECT_FAILURE_URL=/checkout?payment_status=failed
+# Redirect URLs (Optional - defaults provided)
+STOREFRONT_URL=http://localhost:8000 # or use NEXT_PUBLIC_BASE_URL
+# PAYU_REDIRECT_URL=/order/confirmed  # Default: /order/confirmed
+# PAYU_REDIRECT_FAILURE_URL=/checkout # Default: /checkout
 ```
 
 ### 2. MedusaJS Config
@@ -288,9 +288,9 @@ if (result.success) {
 | `PAYU_MERCHANT_KEY` | PayU Merchant Key | Yes |
 | `PAYU_MERCHANT_SALT` | PayU Merchant Salt (Salt V1) | Yes |
 | `PAYU_ENVIRONMENT` | `test` or `production` | No (default: `test`) |
-| `STOREFRONT_URL` | Your storefront base URL (e.g., `http://localhost:8000`) | Yes |
-| `PAYU_REDIRECT_URL` | Success redirect path (e.g., `/order/confirmed`) | Yes |
-| `PAYU_REDIRECT_FAILURE_URL` | Failure redirect path (e.g., `/checkout?payment_status=failed`) | Yes |
+| `STOREFRONT_URL` or `NEXT_PUBLIC_BASE_URL` | Your storefront base URL (e.g., `http://localhost:8000`) | Yes |
+| `PAYU_REDIRECT_URL` | Success redirect path (e.g., `/order/confirmed`) | No (default: `/order/confirmed`) |
+| `PAYU_REDIRECT_FAILURE_URL` | Failure redirect path (e.g., `/checkout`) | No (default: `/checkout`) |
 
 ## Testing
 
