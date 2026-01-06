@@ -102,9 +102,22 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
     /**
      * Format amount to string with 2 decimals (PayU requirement)
      */
-    private formatAmount(amount: unknown): string {
-        const num = typeof amount === "string" ? parseFloat(amount) : Number(amount)
-        return num.toFixed(2)
+    private formatAmount(amount: any): string {
+        let num: number
+        if (typeof amount === "string") {
+            num = parseFloat(amount)
+        } else if (typeof amount === "number") {
+            num = amount
+        } else if (amount && typeof amount.toNumber === 'function') {
+            // Handle BigNumber or custom objects
+            num = amount.toNumber()
+        } else if (amount && typeof amount === 'object' && 'value' in amount) {
+            // Handle serialized BigNumber: { value: "155.82", precision: 20 }
+            num = parseFloat(amount.value)
+        } else {
+            num = Number(amount)
+        }
+        return isNaN(num) ? "NaN" : num.toFixed(2)
     }
 
     /**
@@ -285,6 +298,8 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
      */
     async refundPayment(input: RefundPaymentInput): Promise<RefundPaymentOutput> {
         try {
+            this.logger_?.info?.(`PayU refund input: ${JSON.stringify(input)}`)
+
             const sessionData = input.data as unknown as PayuSessionData
 
             if (!sessionData.payuTransactionId) {
@@ -296,6 +311,13 @@ class PayuPaymentProviderService extends AbstractPaymentProvider<PayuProviderCon
 
             const tokenId = `REF_${sessionData.payuTransactionId}_${Date.now()}`
             const refundAmount = this.formatAmount(input.amount)
+
+            if (!refundAmount || refundAmount === "NaN") {
+                throw new MedusaError(
+                    MedusaError.Types.INVALID_DATA,
+                    `Invalid refund amount: ${input.amount}`
+                )
+            }
 
             this.logger_?.info?.(
                 `PayU refund request: mihpayid=${sessionData.payuTransactionId}, ` +
